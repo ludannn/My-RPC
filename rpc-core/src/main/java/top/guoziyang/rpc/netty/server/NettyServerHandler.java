@@ -10,36 +10,45 @@ import org.slf4j.LoggerFactory;
 import top.guoziyang.rpc.RequestHandler;
 import top.guoziyang.rpc.entity.RpcRequest;
 import top.guoziyang.rpc.entity.RpcResponse;
-import top.guoziyang.rpc.registry.DefaultServiceRegistry;
-import top.guoziyang.rpc.registry.ServiceRegistry;
+import top.guoziyang.rpc.provider.ServiceProvider;
+import top.guoziyang.rpc.util.ThreadPoolFactory;
+
+import java.util.concurrent.ExecutorService;
 
 /**
- * 3.Netty中处理RpcRequest的Handler -NettyServerhandler 用于接收 RpcRequest，并且执行调用，将调用结果返回封装成 RpcResponse 发送出去。
+ * Netty中处理RpcRequest的Handler
+ *
  * @author ziyang
  */
-public class NettyServerHandler extends SimpleChannelInboundHandler<RpcRequest> {//处理方式和Socket中RequestHandler的逻辑基本一致
+public class NettyServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
 
     private static final Logger logger = LoggerFactory.getLogger(NettyServerHandler.class);
     private static RequestHandler requestHandler;
-    private static ServiceRegistry serviceRegistry;
+//    private static ServiceProvider serviceProvider; //4
+    private static final String THREAD_NAME_PREFIX = "netty-server-handler";//5
+
+    private static final ExecutorService threadPool;//5
+
 
     static {
         requestHandler = new RequestHandler();
-        serviceRegistry = new DefaultServiceRegistry();
+        threadPool = ThreadPoolFactory.createDefaultThreadPool(THREAD_NAME_PREFIX);
     }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcRequest msg) throws Exception {
-        try {
-            logger.info("服务器接收到请求: {}", msg);
-            String interfaceName = msg.getInterfaceName();
-            Object service = serviceRegistry.getService(interfaceName);
-            Object result = requestHandler.handle(msg, service);
-            ChannelFuture future = ctx.writeAndFlush(RpcResponse.success(result));
-            future.addListener(ChannelFutureListener.CLOSE);
-        } finally {
-            ReferenceCountUtil.release(msg);
-        }
+        threadPool.execute(() -> { //保证线程
+            try {
+                logger.info("服务器接收到请求: {}", msg);
+//            String interfaceName = msg.getInterfaceName();
+//            Object service = serviceProvider.getService(interfaceName);
+                Object result = requestHandler.handle(msg);
+                ChannelFuture future = ctx.writeAndFlush(RpcResponse.success(result, msg.getRequestId()));
+                future.addListener(ChannelFutureListener.CLOSE);
+            } finally {
+                ReferenceCountUtil.release(msg);
+            }
+        });
     }
 
     @Override

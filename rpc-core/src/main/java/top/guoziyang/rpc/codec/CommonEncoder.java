@@ -8,10 +8,11 @@ import top.guoziyang.rpc.enumeration.PackageType;
 import top.guoziyang.rpc.serializer.CommonSerializer;
 
 /**
- * 3.通用的编码拦截器 -把 RpcRequest 或者 RpcResponse 包装成协议包。 根据上面提到的协议格式，将各个字段写到管道里
+ * 通用的编码拦截器
+ *
  * @author ziyang
  */
-public class CommonEncoder extends MessageToByteEncoder {//3.继承了MessageToByteEncoder 类，见名知义，就是把 Message（实际要发送的对象）转化成 Byte 数组。
+public class CommonEncoder extends MessageToByteEncoder {
 
     private static final int MAGIC_NUMBER = 0xCAFEBABE;
 
@@ -24,7 +25,7 @@ public class CommonEncoder extends MessageToByteEncoder {//3.继承了MessageToB
     @Override
     protected void encode(ChannelHandlerContext ctx, Object msg, ByteBuf out) throws Exception {
         out.writeInt(MAGIC_NUMBER);
-        if(msg instanceof RpcRequest) {
+        if (msg instanceof RpcRequest) {
             out.writeInt(PackageType.REQUEST_PACK.getCode());
         } else {
             out.writeInt(PackageType.RESPONSE_PACK.getCode());

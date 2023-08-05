@@ -3,7 +3,8 @@ package top.guoziyang.rpc.exception;
 import top.guoziyang.rpc.enumeration.RpcError;
 
 /**
- * 2.RPC调用异常
+ * RPC调用异常
+ *
  * @author ziyang
  */
 public class RpcException extends RuntimeException {

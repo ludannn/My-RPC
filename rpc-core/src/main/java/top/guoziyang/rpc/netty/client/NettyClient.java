@@ -13,69 +13,82 @@ import top.guoziyang.rpc.codec.CommonDecoder;
 import top.guoziyang.rpc.codec.CommonEncoder;
 import top.guoziyang.rpc.entity.RpcRequest;
 import top.guoziyang.rpc.entity.RpcResponse;
-import top.guoziyang.rpc.serializer.JsonSerializer;
+import top.guoziyang.rpc.enumeration.RpcError;
+import top.guoziyang.rpc.exception.RpcException;
+import top.guoziyang.rpc.registry.NacosServiceRegistry;
+import top.guoziyang.rpc.registry.ServiceRegistry;
+import top.guoziyang.rpc.serializer.CommonSerializer;
+import top.guoziyang.rpc.serializer.KryoSerializer;
+import top.guoziyang.rpc.util.RpcMessageChecker;
+
+import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 3.NIO方式消费侧客户端类
+ * NIO方式消费侧客户端类
+ *
  * @author ziyang
  */
 public class NettyClient implements RpcClient {
 
     private static final Logger logger = LoggerFactory.getLogger(NettyClient.class);
-
-    private String host;
-    private int port;
     private static final Bootstrap bootstrap;
+    private final ServiceRegistry serviceRegistry;
 
-    public NettyClient(String host, int port) {
-        this.host = host;
-        this.port = port;
-    }
+    private CommonSerializer serializer;
 
-    //3.在静态代码块中就直接配置好了 Netty 客户端，等待发送数据时启动，channel 将 RpcRequest 对象写出，并且等待服务端返回的结果
     static {
         EventLoopGroup group = new NioEventLoopGroup();
         bootstrap = new Bootstrap();
         bootstrap.group(group)
                 .channel(NioSocketChannel.class)
-                .option(ChannelOption.SO_KEEPALIVE, true)
-                .handler(new ChannelInitializer<SocketChannel>() {
-                    @Override
-                    protected void initChannel(SocketChannel ch) throws Exception {
-                        ChannelPipeline pipeline = ch.pipeline();
-                        pipeline.addLast(new CommonDecoder())
-                                .addLast(new CommonEncoder(new JsonSerializer()))
-                                .addLast(new NettyClientHandler());
-                    }
-                });
+                .option(ChannelOption.SO_KEEPALIVE, true);
+    }
+
+    private String host;
+    private int port;
+
+    public NettyClient() {
+        this.serviceRegistry = new NacosServiceRegistry();
     }
 
     @Override
     public Object sendRequest(RpcRequest rpcRequest) {
+        if(serializer == null) {
+            logger.error("未设置序列化器");
+            throw new RpcException(RpcError.SERIALIZER_NOT_FOUND);
+        }
+        AtomicReference<Object> result = new AtomicReference<>(null);
         try {
-
-            ChannelFuture future = bootstrap.connect(host, port).sync();
-            logger.info("客户端连接到服务器 {}:{}", host, port);
-            Channel channel = future.channel();
-            if(channel != null) {
+//            Channel channel = ChannelProvider.get(new InetSocketAddress(host, port), serializer);
+            //在过去创建 NettyClient 时，需要传入 host 和 port，现在这个 host 和 port 是通过 Nacos 获取的
+            InetSocketAddress inetSocketAddress = serviceRegistry.lookupService(rpcRequest.getInterfaceName());
+            Channel channel = ChannelProvider.get(inetSocketAddress, serializer);
+            if(channel.isActive()) {
                 channel.writeAndFlush(rpcRequest).addListener(future1 -> {
-                    if(future1.isSuccess()) {
+                    if (future1.isSuccess()) {
                         logger.info(String.format("客户端发送消息: %s", rpcRequest.toString()));
                     } else {
                         logger.error("发送消息时有错误发生: ", future1.cause());
                     }
                 });
                 channel.closeFuture().sync();
-                //3.注意static这里的发送是非阻塞的，所以发送后会立刻返回，而无法得到结果。通过 AttributeKey 的方式阻塞获得返回结果
-                AttributeKey<RpcResponse> key = AttributeKey.valueOf("rpcResponse");//3.通过这种方式获得全局可见的返回结果，在获得返回结果 RpcResponse 后
-                RpcResponse rpcResponse = channel.attr(key).get();//3.将这个对象以 key 为 rpcResponse 放入 ChannelHandlerContext 中
-                return rpcResponse.getData();//3.这里就可以立刻获得结果并返回
+                AttributeKey<RpcResponse> key = AttributeKey.valueOf("rpcResponse" + rpcRequest.getRequestId());
+                RpcResponse rpcResponse = channel.attr(key).get();
+                RpcMessageChecker.check(rpcRequest, rpcResponse);
+                result.set(rpcResponse.getData());
+            } else {
+                System.exit(0);
             }
-
         } catch (InterruptedException e) {
             logger.error("发送消息时有错误发生: ", e);
         }
-        return null;
+        return result.get();
+    }
+
+    @Override
+    public void setSerializer(CommonSerializer serializer) {
+        this.serializer = serializer;
     }
 
 }
