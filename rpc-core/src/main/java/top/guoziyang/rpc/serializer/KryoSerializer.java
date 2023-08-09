@@ -22,6 +22,7 @@ public class KryoSerializer implements CommonSerializer {
 
     private static final Logger logger = LoggerFactory.getLogger(KryoSerializer.class);
 
+    //用于存储每个线程的Kryo实例。ThreadLocal保证了每个线程都有自己的Kryo实例，避免了线程安全问题
     private static final ThreadLocal<Kryo> kryoThreadLocal = ThreadLocal.withInitial(() -> {
         Kryo kryo = new Kryo();
         kryo.register(RpcResponse.class);
@@ -31,6 +32,7 @@ public class KryoSerializer implements CommonSerializer {
         return kryo;
     });
 
+    //使用Kryo实例将对象序列化为字节数组，并返回字节数组
     @Override
     public byte[] serialize(Object obj) {
         try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -45,6 +47,7 @@ public class KryoSerializer implements CommonSerializer {
         }
     }
 
+    //使用Kryo实例将字节数组反序列化为目标类的对象，并返回该对象
     @Override
     public Object deserialize(byte[] bytes, Class<?> clazz) {
         try (ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(bytes);
@@ -58,7 +61,7 @@ public class KryoSerializer implements CommonSerializer {
             throw new SerializeException("反序列化时有错误发生");
         }
     }
-
+    //返回序列化器的编码
     @Override
     public int getCode() {
         return SerializerCode.valueOf("KRYO").getCode();
